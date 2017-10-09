@@ -1,0 +1,17 @@
+apply plugin: 'java'
+
+repositories {
+	mavenLocal()
+	mavenCentral()
+}
+
+ext.jacksonVersion = '2.7.5'
+
+dependencies {
+	compile "com.squareup:javapoet:1.9.0"
+	compile "org.openehr:openehr-odin:1.0-SNAPSHOT"
+	compile "org.openehr:openehr-bmm:1.0-SNAPSHOT"
+	compile "org.openehr:java-model-stack:1.0-SNAPSHOT"
+
+	compile 'com.google.guava:guava:23.0'
+}
