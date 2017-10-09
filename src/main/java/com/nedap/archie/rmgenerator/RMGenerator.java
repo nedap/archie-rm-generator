@@ -119,8 +119,8 @@ public class RMGenerator {
             }
         } else if(typeDefinition instanceof PersistedBmmOpenType) {
             PersistedBmmOpenType p = (PersistedBmmOpenType) typeDefinition;
-            //TODO: actually this should be the generic type of the class, so if defined as T there, should be T here
-            return WildcardTypeName.subtypeOf(Object.class);
+            //TODO: check if BMM allows bounds here
+            return TypeVariableName.get(p.getType());
         } else if(typeDefinition instanceof PersistedBmmGenericType) {
             PersistedBmmGenericType p = (PersistedBmmGenericType) typeDefinition;
             p.getGenericParameters();
