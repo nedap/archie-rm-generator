@@ -16,21 +16,28 @@ import org.openehr.odin.antlr.OdinVisitorImpl;
 import org.openehr.odin.loader.OdinLoaderImpl;
 
 import javax.annotation.Nullable;
+import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.WildcardType;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class RMGenerator {
 
     PersistedBmmSchema schema;
     File outputDir;
     String outputPackage = "default";
+
+    private List<JavaFile> output = new ArrayList<>();
 
     private NamingStrategy namingStrategy = new DefaultNamingStrategy();
 
@@ -51,32 +58,56 @@ public class RMGenerator {
     }
 
 
-    public void createClasses() throws IOException {
+    public void createClasses(Appendable stream) throws IOException {
 
         for(PersistedBmmClass clazz:schema.getClassDefinitions()) {
-            TypeSpec.Builder typeSpecBuilder = createTypeSpecBuilder(clazz);
-
-            for(PersistedBmmProperty property:clazz.getProperties().values()) {
-                addProperty(typeSpecBuilder, property);
-            }
-
-            TypeSpec typeSpec = typeSpecBuilder.build();
-
-            JavaFile javaFile = JavaFile.builder(outputPackage, typeSpec)
-                    .build();
-
-            javaFile.writeTo(System.out);
-
-
+            JavaFile javaFile = createJavaFile(clazz);
+            javaFile.writeTo(stream);
         }
+    }
+
+    public void createClasses(File directory) throws IOException {
+
+        for(PersistedBmmClass clazz:schema.getClassDefinitions()) {
+            JavaFile javaFile = createJavaFile(clazz);
+            javaFile.writeTo(directory);
+        }
+    }
+
+    public void createClasses(Path directory) throws IOException {
+
+        for(PersistedBmmClass clazz:schema.getClassDefinitions()) {
+            JavaFile javaFile = createJavaFile(clazz);
+            javaFile.writeTo(directory);
+        }
+    }
+
+    private JavaFile createJavaFile(PersistedBmmClass clazz) {
+        TypeSpec.Builder typeSpecBuilder = createTypeSpecBuilder(clazz);
+
+        for(PersistedBmmProperty property:clazz.getProperties().values()) {
+            addProperty(typeSpecBuilder, property);
+        }
+
+        TypeSpec typeSpec = typeSpecBuilder.build();
+
+        return JavaFile.builder(outputPackage, typeSpec)
+                .build();
     }
 
     private void addProperty(TypeSpec.Builder typeSpecBuilder, PersistedBmmProperty property) {
         TypeName propertyTypeName = getTypename(property);
         if(propertyTypeName != null) {
             String fieldName = namingStrategy.bmmPropertyToJavaPropertyName(property.getName());
+            if(SourceVersion.isIdentifier(fieldName) || SourceVersion.isKeyword(fieldName)) {
+                //fix Java reserved words
+                fieldName = fieldName + "Property";
+            }
             FieldSpec.Builder field = FieldSpec.builder(propertyTypeName,
                     fieldName, Modifier.PRIVATE);
+            if(property.getDocumentation() != null) {
+                field.addJavadoc(property.getDocumentation() + "\n");
+            }
             if(property.getMandatory() != null && !property.getMandatory()) {
                 field.addAnnotation(Nullable.class);
             }
@@ -123,14 +154,17 @@ public class RMGenerator {
             return TypeVariableName.get(p.getType());
         } else if(typeDefinition instanceof PersistedBmmGenericType) {
             PersistedBmmGenericType p = (PersistedBmmGenericType) typeDefinition;
-            p.getGenericParameters();
-            return ParameterizedTypeName.get(toJavaType(p.getRootType()), TypeName.BOOLEAN);
+            List<TypeName> typeNames = p.getGenericParameters().values().stream().map((i) -> toJavaType(i)).collect(Collectors.toList());
+            return ParameterizedTypeName.get(toJavaType(p.getRootType()), typeNames.toArray(new TypeName[typeNames.size()]));
         }
         throw new UnsupportedOperationException("unknown BMM type: " + typeDefinition);
     }
 
     private TypeSpec.Builder createTypeSpecBuilder(PersistedBmmClass clazz) {
         TypeSpec.Builder typeSpecBuilder = TypeSpec.classBuilder(namingStrategy.bmmClassToJavaClassName(clazz.getName()));
+        if(clazz.getDocumentation() != null) {
+            typeSpecBuilder.addJavadoc(clazz.getDocumentation() + "\n");
+        }
         typeSpecBuilder.addModifiers(Modifier.PUBLIC);
         if(clazz.isAbstract()) {
             typeSpecBuilder.addModifiers(Modifier.ABSTRACT);
@@ -140,7 +174,8 @@ public class RMGenerator {
             typeSpecBuilder.superclass(ClassName.get(outputPackage, namingStrategy.bmmClassToJavaClassName(clazz.getAncestors().get(0))));
         } else if(!clazz.getAncestors().isEmpty()) {
             //too many ancestors, requires manual mapping. produce a warning
-            System.out.println("//TODO: requires manual mapping because of ancestors: " + clazz.getAncestors());
+           // throw new UnsupportedOperationException(clazz.getName() + " requires manual mapping because of ancestors: " + clazz.getAncestors());
+            System.err.println(clazz.getName() + " requires manual mapping because of ancestors: " + clazz.getAncestors());
         }
 
         for(PersistedBmmGenericParameter generic: clazz.getGenericParameterDefinitions().values()) {
@@ -149,7 +184,7 @@ public class RMGenerator {
         return typeSpecBuilder;
     }
 
-    private ClassName toJavaContainerType(String type) {
+    private static ClassName toJavaContainerType(String type) {
         switch(type) {
             case "List":
                 return ClassName.get(List.class);
